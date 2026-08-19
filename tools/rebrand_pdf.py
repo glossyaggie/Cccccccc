@@ -63,21 +63,29 @@ def process(src, dst, logo):
         return (cx - width / 2, dy0, cx + width / 2, dy1)
 
     for page in doc:
-        # --- remove old Solico text + vector logo ---------------------------
-        red = [
+        # --- remove old Solico TEXT only ------------------------------------
+        # fill=None + LINE_ART_NONE guarantees no frame/border line is painted
+        # over or deleted.
+        for r in [
             (985, 334, 1158, 352),     # title cell
             (1024, 514, 1116, 538),    # contractor cell
-            (980, 717, 1092, 763),     # logo (inside red frame)
             (975, 762, 1160, 808),     # contact block
             (997, 810, 1142, 820.5),   # copyright line
-        ]
-        for r in red:
+        ]:
             page.add_redact_annot(U(*r), fill=None)
         page.apply_redactions(
             images=pymupdf.PDF_REDACT_IMAGE_NONE,
-            graphics=pymupdf.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,
+            graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
             text=pymupdf.PDF_REDACT_TEXT_REMOVE,
         )
+
+        # --- hide the Solico logo -------------------------------------------
+        # The logo is vector art inside a form XObject that redaction cannot
+        # reliably delete (some viewers still render the leftover strokes), so
+        # paint an opaque white rectangle over it, kept strictly INSIDE the
+        # cell frame lines (top y=719, bottom y=809.6, sides x=966/1173) so no
+        # border is affected.
+        page.draw_rect(U(968, 720, 1172, 762), color=None, fill=(1, 1, 1))
 
         # --- ATM logo, centred in the cell ----------------------------------
         page.insert_image(U(*box(103, 723, 752)), filename=logo,
