@@ -52,32 +52,41 @@ def put(page, drect, text, cap, bold, color=(0, 0, 0)):
 def process(src, dst, logo):
     doc = pymupdf.open(src)
 
+    # The bottom title-block cell is bounded by a red frame spanning the
+    # displayed rectangle x[966, 1173].  Its centre (x = 1069.5) is where all
+    # logo/contact content must be centred.  Redactions use fill=None so that
+    # frame/border lines crossing a redaction rectangle are never painted over
+    # (only fully-covered line-art -- the Solico logo -- is removed).
+    cx = 1069.5
+
+    def box(width, dy0, dy1):
+        return (cx - width / 2, dy0, cx + width / 2, dy1)
+
     for page in doc:
         # --- remove old Solico text + vector logo ---------------------------
         red = [
-            (984, 334, 1162, 353),     # title cell
-            (1026, 514, 1116, 538),    # contractor cell
-            (966, 720, 1121, 762),     # logo cell (below y=719 border line)
-            (966, 762, 1150, 808),     # contact block
-            (995, 810.3, 1145, 821.5), # copyright line
+            (985, 334, 1158, 352),     # title cell
+            (1024, 514, 1116, 538),    # contractor cell
+            (980, 717, 1092, 763),     # logo (inside red frame)
+            (975, 762, 1160, 808),     # contact block
+            (997, 810, 1142, 820.5),   # copyright line
         ]
         for r in red:
-            page.add_redact_annot(U(*r), fill=(1, 1, 1))
+            page.add_redact_annot(U(*r), fill=None)
         page.apply_redactions(
             images=pymupdf.PDF_REDACT_IMAGE_NONE,
             graphics=pymupdf.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,
             text=pymupdf.PDF_REDACT_TEXT_REMOVE,
         )
 
-        # --- cover any logo remnants with white, then drop in ATM logo ------
-        page.draw_rect(U(966, 720, 1085, 761), color=None, fill=(1, 1, 1))
-        page.insert_image(U(998, 721, 1090, 745), filename=logo,
+        # --- ATM logo, centred in the cell ----------------------------------
+        page.insert_image(U(*box(103, 723, 752)), filename=logo,
                           rotate=270, keep_proportion=True)
 
-        # --- new upright text -----------------------------------------------
-        put(page, (984, 335, 1160, 352),
+        # --- new upright, centred text --------------------------------------
+        put(page, box(171, 335, 352),
             "ATM Tanks Panel Type Water Tank", cap=11, bold=True)
-        put(page, (1026, 516, 1116, 536), "ATM TANKS", cap=11, bold=True)
+        put(page, box(92, 516, 536), "ATM TANKS", cap=11, bold=True)
 
         contact = [
             "52/1014 Currumbin Creek Road,",
@@ -86,12 +95,12 @@ def process(src, dst, logo):
             "info@atmtanks.com.au",
             "atmtanks.com.au",
         ]
-        top, row = 744.0, 12.4
+        top, row = 753.0, 10.8
         for i, line in enumerate(contact):
-            put(page, (966, top + i * row, 1122, top + (i + 1) * row),
+            put(page, box(169, top + i * row, top + (i + 1) * row),
                 line, cap=8, bold=False)
 
-        put(page, (995, 810.5, 1141, 821),
+        put(page, box(145, 810.5, 820),
             "Copyright ATM Tanks Group", cap=6.8, bold=False)
 
     # --- scrub metadata -----------------------------------------------------
