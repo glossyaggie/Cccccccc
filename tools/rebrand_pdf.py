@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rebrand the Solico tank shop-drawing PDF with ATM Tanks company details.
+"""Rebrand a Solico tank shop-drawing PDF with ATM Tanks company details.
 
 Replacements applied on every page:
   * "Solico Panel Type Water Tank"            -> "ATM Tanks Panel Type Water Tank"
@@ -9,107 +9,194 @@ Replacements applied on every page:
   * "Copyright Solico Fiber Glass Factory..." -> "Copyright ATM Tanks Group"
   * PDF metadata Solico path                  -> ATM Tanks title
 
-The source pages carry a /Rotate 270, so page content is authored in the
-un-rotated media-box coordinate system.  All target rectangles below are given
-in the *displayed* (rotated, human-readable) coordinate system and converted to
-media-box coordinates with U().  Inserted text/images use rotate=270 so they
-render upright in the displayed view.
+Works across sheet sizes (e.g. A3 or A4) and whether the title-block text is
+live text or outlined to curves:
+
+  * The pages carry /Rotate 270, so content lives in the un-rotated media-box
+    coordinate system.  Reference coordinates below are expressed in the A3
+    *displayed* (rotated, human-readable) system and mapped onto the actual page
+    with an affine fit derived from the bottom title-block frame (detected per
+    page).  ``UD`` then converts to media-box coordinates.
+  * Old content is removed two ways so it disappears in every viewer: live text
+    is redacted, and an opaque white rectangle is painted over each region
+    (this also hides outlined-to-curves text and the vector logo, which
+    redaction cannot reliably delete).  Cover rectangles are kept inside the
+    surrounding frame/border lines so no border is painted over.
+  * Inserted text/images use rotate=270 to render upright.
 """
+import os
+import re
 import sys
 import pymupdf
 
-H = 841.9199829101562  # media-box height == displayed width origin offset
+CLEAN_TITLE = "7X2X4-ATM TANKS - PROJECT IN AUSTRALIA - 26SE399"
+BAD_TOKENS = ("GSTATION1", "Solico", "SOLICO", "solico", "manuel01",
+              "Shareware", "fiberglass", "solicouae")
 
 
-def U(dx0, dy0, dx1, dy1):
-    """Displayed rect -> un-rotated media-box rect (page /Rotate 270)."""
-    return pymupdf.Rect(H - dy1, dx0, H - dy0, dx1)
+def scrub_solico_metadata(path):
+    """Remove every Solico reference from PDF metadata / XMP.
 
-
-def put(page, drect, text, cap, bold, color=(0, 0, 0)):
-    """Insert one upright, centred line into a displayed-coordinate box.
-
-    On this rotated page the limiting dimensions are:
-      * reading direction  -> box display *width*  (dx1 - dx0)
-      * line height         -> box display *height* (dy1 - dy0)
-    Pick the largest font (<= cap) that satisfies both, then shrink until
-    insert_textbox reports the line actually fits (positive return value).
+    Some source PDFs (e.g. Acrobat Distiller output) carry a document Info dict
+    and per-page XMP metadata streams that still hold the original Solico
+    network file path and author.  PyMuPDF's set_metadata does not reach these,
+    so rewrite them directly with pikepdf.
     """
-    fontname = "hebo" if bold else "helv"
-    dw = (drect[2] - drect[0]) - 2
-    dh = (drect[3] - drect[1])
-    w1 = pymupdf.get_text_length(text, fontname=fontname, fontsize=1)
-    fs = min(cap, dw / w1 if w1 else cap, dh / 1.72)
-    r = U(*drect)
-    while fs > 2:
-        if page.insert_textbox(r, text, fontsize=fs, fontname=fontname,
-                               rotate=270, align=1, color=color) >= 0:
-            return fs
-        fs -= 0.25
-    return fs
+    try:
+        import pikepdf
+    except ImportError:
+        return
+    pdf = pikepdf.open(path, allow_overwriting_input=True)
+    for obj in pdf.objects:
+        if isinstance(obj, pikepdf.Stream):
+            try:
+                b = obj.read_bytes()
+            except Exception:
+                continue
+            if b"olico" in b or b"GSTATION1" in b or b"manuel01" in b:
+                b = re.sub(rb'\\\\GSTATION1[^<"\']*', CLEAN_TITLE.encode(), b)
+                b = re.sub(rb'(?i)solico', b'ATM Tanks', b)
+                b = b.replace(b'manuel01', b'ATM Tanks')
+                obj.write(b)
+        elif isinstance(obj, pikepdf.Dictionary):
+            for k in list(obj.keys()):
+                v = obj.get(k)
+                if isinstance(v, pikepdf.String) and \
+                        any(t in str(v) for t in BAD_TOKENS):
+                    obj[k] = pikepdf.String(
+                        CLEAN_TITLE if k == "/Title" else "ATM Tanks")
+    with pdf.open_metadata() as m:
+        m["dc:title"] = CLEAN_TITLE
+        m["dc:creator"] = ["ATM Tanks"]
+    pdf.save(path)
+    pdf.close()
+
+# --- A3 reference geometry (displayed coordinates) --------------------------
+REF_FRAME = dict(top=719.04, bottom=809.64, left=966.6, right=1173.2)
+REF_CX = 1069.5  # horizontal centre of the logo/contact cell
+
+# Regions of old Solico content to erase (A3 displayed rects).
+LOGO_COVER = (968, 720, 1172, 762)
+TEXT_COVERS = [
+    (987.5, 335.0, 1156.0, 351.5),  # "Solico Panel Type Water Tank"
+    (1039.0, 518.0, 1102.0, 534.0),  # contractor value "ATM TANK"
+    (986.0, 764.0, 1141.0, 805.5),  # address / phone / email block
+    (1000.0, 810.0, 1136.0, 820.5),  # copyright line
+]
+
+CONTACT = [
+    "52/1014 Currumbin Creek Road,",
+    "Currumbin Waters QLD 4223",
+    "1800 422 444",
+    "info@atmtanks.com.au",
+    "atmtanks.com.au",
+]
+
+BLUE = (0.1490, 0.6392, 0.8196)  # Solico logo blue
+
+
+def _is_blue(c):
+    return c and all(abs(c[i] - BLUE[i]) < 0.12 for i in range(3))
+
+
+def detect_frame(page):
+    """Locate the bottom title-block cell frame in *displayed* coordinates.
+
+    Returns dict(top, bottom, left, right).  Found by locating the Solico blue
+    logo, then the nearest full-width horizontal rules above and below it.
+    """
+    rm = page.rotation_matrix
+    W, Hd = page.rect.width, page.rect.height
+    by0, by1, bx0, bx1 = 1e9, -1e9, 1e9, -1e9
+    hlines = []
+    for dr in page.get_drawings():
+        R = dr["rect"] * rm
+        if _is_blue(dr.get("color")) or _is_blue(dr.get("fill")):
+            if R.x0 > 0.55 * W and R.y0 > 0.5 * Hd:
+                by0, by1 = min(by0, R.y0), max(by1, R.y1)
+                bx0, bx1 = min(bx0, R.x0), max(bx1, R.x1)
+        for it in dr["items"]:
+            if it[0] == "l":
+                a, b = it[1], it[2]
+                L = pymupdf.Rect(min(a.x, b.x), min(a.y, b.y),
+                                 max(a.x, b.x), max(a.y, b.y)) * rm
+                if abs(L.y0 - L.y1) < 0.6 and (L.x1 - L.x0) > 0.1 * W \
+                        and L.x0 > 0.55 * W:
+                    hlines.append((L.y0, L.x0, L.x1))
+    if by0 > by1:
+        raise RuntimeError("Solico logo (blue) not found on page")
+    top = max((h for h in hlines if h[0] < by0), key=lambda h: h[0])
+    bot = min((h for h in hlines if h[0] > by1), key=lambda h: h[0])
+    return dict(top=top[0], bottom=bot[0],
+                left=min(top[1], bot[1]), right=max(top[2], bot[2]))
+
+
+def make_affine(frame):
+    """Affine mapping A3 reference displayed coords -> this page's coords."""
+    ax = (frame["right"] - frame["left"]) / (REF_FRAME["right"] - REF_FRAME["left"])
+    bx = frame["left"] - ax * REF_FRAME["left"]
+    ay = (frame["bottom"] - frame["top"]) / (REF_FRAME["bottom"] - REF_FRAME["top"])
+    by = frame["top"] - ay * REF_FRAME["top"]
+    return ax, bx, ay, by
 
 
 def process(src, dst, logo):
     doc = pymupdf.open(src)
 
-    # The bottom title-block cell is bounded by a red frame spanning the
-    # displayed rectangle x[966, 1173].  Its centre (x = 1069.5) is where all
-    # logo/contact content must be centred.  Redactions use fill=None so that
-    # frame/border lines crossing a redaction rectangle are never painted over
-    # (only fully-covered line-art -- the Solico logo -- is removed).
-    cx = 1069.5
-
-    def box(width, dy0, dy1):
-        return (cx - width / 2, dy0, cx + width / 2, dy1)
-
     for page in doc:
-        # --- remove old Solico TEXT only ------------------------------------
-        # fill=None + LINE_ART_NONE guarantees no frame/border line is painted
-        # over or deleted.
-        for r in [
-            (985, 334, 1158, 352),     # title cell
-            (1024, 514, 1116, 538),    # contractor cell
-            (975, 762, 1160, 808),     # contact block
-            (997, 810, 1142, 820.5),   # copyright line
-        ]:
-            page.add_redact_annot(U(*r), fill=None)
+        Hd = page.rect.height
+        ax, bx, ay, by = make_affine(detect_frame(page))
+
+        def T(dx, dy):
+            return ax * dx + bx, ay * dy + by
+
+        def UD(r):
+            """A3 displayed rect -> media-box rect on this page."""
+            x0, y0 = T(r[0], r[1])
+            x1, y1 = T(r[2], r[3])
+            return pymupdf.Rect(Hd - y1, x0, Hd - y0, x1)
+
+        def box(width, dy0, dy1):
+            return (REF_CX - width / 2, dy0, REF_CX + width / 2, dy1)
+
+        def put(rref, text, cap, bold, color=(0, 0, 0)):
+            fontname = "hebo" if bold else "helv"
+            r = UD(rref)
+            dw, dh = r.height - 2, r.width  # display width/height after rotate
+            w1 = pymupdf.get_text_length(text, fontname=fontname, fontsize=1)
+            fs = min(cap * ax, dw / w1 if w1 else cap, dh / 1.72)
+            while fs > 1.5:
+                if page.insert_textbox(r, text, fontsize=fs, fontname=fontname,
+                                       rotate=270, align=1, color=color) >= 0:
+                    return
+                fs -= 0.2
+
+        # 1) redact any live text in the target regions (no-op if outlined)
+        for r in TEXT_COVERS:
+            page.add_redact_annot(UD(r), fill=None)
         page.apply_redactions(
             images=pymupdf.PDF_REDACT_IMAGE_NONE,
             graphics=pymupdf.PDF_REDACT_LINE_ART_NONE,
             text=pymupdf.PDF_REDACT_TEXT_REMOVE,
         )
 
-        # --- hide the Solico logo -------------------------------------------
-        # The logo is vector art inside a form XObject that redaction cannot
-        # reliably delete (some viewers still render the leftover strokes), so
-        # paint an opaque white rectangle over it, kept strictly INSIDE the
-        # cell frame lines (top y=719, bottom y=809.6, sides x=966/1173) so no
-        # border is affected.
-        page.draw_rect(U(968, 720, 1172, 762), color=None, fill=(1, 1, 1))
+        # 2) paint opaque white over old text + logo (hides outlined curves and
+        #    the vector logo in every viewer; kept inside the frame lines)
+        for r in TEXT_COVERS + [LOGO_COVER]:
+            page.draw_rect(UD(r), color=None, fill=(1, 1, 1))
 
-        # --- ATM logo, centred in the cell ----------------------------------
-        page.insert_image(U(*box(103, 723, 752)), filename=logo,
+        # 3) ATM logo + new upright, centred text
+        page.insert_image(UD(box(103, 723, 752)), filename=logo,
                           rotate=270, keep_proportion=True)
-
-        # --- new upright, centred text --------------------------------------
-        put(page, box(171, 335, 352),
+        put(box(171, 335, 352),
             "ATM Tanks Panel Type Water Tank", cap=11, bold=True)
-        put(page, box(92, 516, 536), "ATM TANKS", cap=11, bold=True)
-
-        contact = [
-            "52/1014 Currumbin Creek Road,",
-            "Currumbin Waters QLD 4223",
-            "1800 422 444",
-            "info@atmtanks.com.au",
-            "atmtanks.com.au",
-        ]
+        put(box(92, 516, 536), "ATM TANKS", cap=11, bold=True)
         top, row = 753.0, 10.8
-        for i, line in enumerate(contact):
-            put(page, box(169, top + i * row, top + (i + 1) * row),
+        for i, line in enumerate(CONTACT):
+            put(box(169, top + i * row, top + (i + 1) * row),
                 line, cap=8, bold=False)
-
-        put(page, box(145, 810.5, 820),
-            "Copyright ATM Tanks Group", cap=6.8, bold=False)
+        put(box(145, 810.5, 820), "Copyright ATM Tanks Group",
+            cap=6.8, bold=False)
 
     # --- scrub metadata -----------------------------------------------------
     meta = doc.metadata or {}
@@ -124,9 +211,10 @@ def process(src, dst, logo):
     doc.save(dst, garbage=4, deflate=True, clean=True)
     doc.close()
 
+    scrub_solico_metadata(dst)
+
 
 if __name__ == "__main__":
-    import os
     here = os.path.dirname(os.path.abspath(__file__))
     src = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
         here, "assets", "source-drawing-26SE399.pdf")
