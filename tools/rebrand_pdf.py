@@ -79,7 +79,9 @@ REF_CX = 1069.5  # horizontal centre of the logo/contact cell
 LOGO_COVER = (968, 720, 1172, 762)
 TEXT_COVERS = [
     (987.5, 335.0, 1156.0, 351.5),  # "Solico Panel Type Water Tank"
-    (1039.0, 518.0, 1102.0, 534.0),  # contractor value "ATM TANK"
+    (1002.0, 470.0, 1139.0, 487.0),  # Project Name value (cleared, keep label)
+    (1039.0, 518.0, 1102.0, 534.0),  # Contractor value (cleared, keep label)
+    (1040.0, 561.0, 1100.0, 576.0),  # Consultant value (cleared, keep label)
     (986.0, 764.0, 1141.0, 805.5),  # address / phone / email block
     (1000.0, 810.0, 1136.0, 820.5),  # copyright line
 ]
@@ -190,7 +192,8 @@ def process(src, dst, logo):
                           rotate=270, keep_proportion=True)
         put(box(171, 335, 352),
             "ATM Tanks Panel Type Water Tank", cap=11, bold=True)
-        put(box(92, 516, 536), "ATM TANKS", cap=11, bold=True)
+        # Contractor / Consultant / Project Name values are intentionally left
+        # blank (client request) -- their labels are kept, values are covered.
         top, row = 753.0, 10.8
         for i, line in enumerate(CONTACT):
             put(box(169, top + i * row, top + (i + 1) * row),
