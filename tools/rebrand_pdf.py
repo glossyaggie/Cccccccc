@@ -86,6 +86,27 @@ TEXT_COVERS = [
     (1000.0, 810.0, 1136.0, 820.5),  # copyright line
 ]
 
+# Values inside the lower title-block that the client fills in themselves.
+# These are white-painted only (NOT redacted) so the adjacent labels/headers
+# and the surrounding table grid lines are always preserved.  Rects stay just
+# inside their cell dividers.
+VALUE_COVERS = [
+    (1023.9, 584.0, 1063.0, 600.0),   # Reference No. value ("26SE399")
+    (1090.5, 584.0, 1113.0, 600.0),   # Scale value ("NTS")
+    (994.0, 603.0, 1024.0, 617.0),    # Done By value ("SHANIF")
+    (1113.4, 603.0, 1130.0, 617.0),   # Approved By value ("JB")
+    # Revisions data rows 0 & 1 (per column; keeps No./Date/Description/Rev By
+    # header and every grid line intact).
+    (966.5, 645.8, 986.8, 655.6),     # row 0 - No.
+    (989.2, 645.8, 1017.8, 655.6),    # row 0 - Date
+    (1020.3, 645.8, 1140.8, 655.6),   # row 0 - Description
+    (1143.2, 645.8, 1172.8, 655.6),   # row 0 - Rev By
+    (966.5, 657.2, 986.8, 667.4),     # row 1 - No.
+    (989.2, 657.2, 1017.8, 667.4),    # row 1 - Date
+    (1020.3, 657.2, 1140.8, 667.4),   # row 1 - Description
+    (1143.2, 657.2, 1172.8, 667.4),   # row 1 - Rev By
+]
+
 CONTACT = [
     "52/1014 Currumbin Creek Road,",
     "Currumbin Waters QLD 4223",
@@ -184,7 +205,7 @@ def process(src, dst, logo):
 
         # 2) paint opaque white over old text + logo (hides outlined curves and
         #    the vector logo in every viewer; kept inside the frame lines)
-        for r in TEXT_COVERS + [LOGO_COVER]:
+        for r in TEXT_COVERS + VALUE_COVERS + [LOGO_COVER]:
             page.draw_rect(UD(r), color=None, fill=(1, 1, 1))
 
         # 3) ATM logo + new upright, centred text
