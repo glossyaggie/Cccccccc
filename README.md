@@ -8,7 +8,8 @@ manufacturer's (Solico) company details to **ATM Tanks** details.
 - [`output/7X2X4-ATM_TANKS_-_PROJECT_IN_AUSTRALIA_-_26SE399.pdf`](output/7X2X4-ATM_TANKS_-_PROJECT_IN_AUSTRALIA_-_26SE399.pdf)
   — rebranded 5-page PDF (A3, revision 0).
 - [`output/7X2X4-ATM_TANKS_-_PROJECT_IN_AUSTRALIA_-_26SE399-Rev1.pdf`](output/7X2X4-ATM_TANKS_-_PROJECT_IN_AUSTRALIA_-_26SE399-Rev1.pdf)
-  — rebranded 5-page PDF (A4, revision 1, "Revised as per comment").
+  — rebranded 5-page PDF (A4, revision 1). Per client request, the values under
+  **Project Name**, **Contractor**, and **Consultant** are left blank (labels kept).
 
 The rebrand script works across sheet sizes (A3/A4) and whether the title-block
 text is live or outlined to curves: it detects the title-block frame on each
